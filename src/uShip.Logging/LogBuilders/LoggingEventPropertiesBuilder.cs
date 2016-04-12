@@ -22,7 +22,7 @@ namespace uShip.Logging.LogBuilders
         ILoggingEventPropertiesBuilder WithCurrentVersion();
 
         ILoggingEventContextBuilder WithCurrentContext();
-
+        
         ILoggingEventPropertiesBuilder WithAdditionalData(IDictionary<string, object> data);
         ILoggingEventPropertiesBuilder WithTags(IEnumerable<string> tags);
 
@@ -31,6 +31,9 @@ namespace uShip.Logging.LogBuilders
 
     internal interface ILoggingEventContextBuilder
     {
+        ILoggingEventContextBuilder WithRequest(HttpRequestBase request);
+        ILoggingEventContextBuilder WithResponse(HttpResponseBase response);
+
         ILoggingEventContextBuilder IncludeBasicRequestInfo();
         ILoggingEventContextBuilder IncludeRequestBody();
         ILoggingEventContextBuilder IncludeResponse();
@@ -207,16 +210,19 @@ namespace uShip.Logging.LogBuilders
         }
 
         #region Context properties
-        private HttpContext _context;
-        HttpRequest _request;
-        HttpResponse _response;
+        private HttpContextBase _context;
+        private HttpRequestBase _request;
+        private HttpResponseBase _response;
 
         public ILoggingEventContextBuilder WithCurrentContext()
         {
-            _context = HttpContext.Current;
-
-            if (_context == null)
+            var currentContext = HttpContext.Current;
+            if (currentContext == null)
+            {
                 return this;
+            }
+
+            _context = new HttpContextWrapper(currentContext);
 
             try
             {
@@ -228,6 +234,24 @@ namespace uShip.Logging.LogBuilders
                 _props["HttpRequest"] = "Unable to read request instance";
             }
 
+            return this;
+        }
+
+        public ILoggingEventContextBuilder WithRequest(HttpRequestBase request)
+        {
+            if (request != null)
+            {
+                _request = request;
+            }
+            return this;
+        }
+
+        public ILoggingEventContextBuilder WithResponse(HttpResponseBase response)
+        {
+            if (response != null)
+            {
+                _response = response;                
+            }
             return this;
         }
 
@@ -270,7 +294,7 @@ namespace uShip.Logging.LogBuilders
             return this;
         }
 
-        private string GetCallingIpAddress(HttpContext context)
+        private string GetCallingIpAddress(HttpContextBase context)
         {
             if (context == null || context.Request == null)
             {
@@ -297,21 +321,18 @@ namespace uShip.Logging.LogBuilders
 
         public ILoggingEventContextBuilder IncludeResponse()
         {
-            if (_context != null)
+            if (_response != null)
             {
-                if (_response != null)
+                _props["StatusCode"] = _response.StatusCode;
+
+                var outputStream = _response.OutputStream;
+                if (outputStream != null && outputStream.CanRead)
                 {
-                    _props["StatusCode"] = _response.StatusCode;
-
-                    var outputStream = _response.OutputStream;
-                    if (outputStream != null && outputStream.CanRead)
-                    {
-                        outputStream.Position = 0;
-                        _props["ResponseBody"] = outputStream.ReadAllText();
-                    }
-
-                    _props.SafeSetProp("ResponseHeaders", () => _response.Headers.ToQuery());
+                    outputStream.Position = 0;
+                    _props["ResponseBody"] = outputStream.ReadAllText();
                 }
+
+                _props.SafeSetProp("ResponseHeaders", () => _response.Headers.ToQuery());
             }
             return this;
         }

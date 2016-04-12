@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
+using System.Web;
 using uShip.Logging.LogBuilders;
 
 namespace uShip.Logging
@@ -22,6 +23,9 @@ namespace uShip.Logging
             private IEnumerable<KeyValuePair<string, object>> _sqlParameters;
             private readonly IDictionary<string, object> _data = new Dictionary<string, object>();
             private readonly IList<string> _tags = new List<string>();
+            private HttpRequestBase _request;
+            private HttpResponseBase _response;
+            private bool _shouldOmitRequestBody;
 
             public FluentLogDataBuilder(ILog log, LoggingEventDataBuilder loggingEventDataBuilder)
             {
@@ -123,6 +127,25 @@ namespace uShip.Logging
                 return this;
             }
 
+            public IFluentLoggerWriter Request(HttpRequestBase request)
+            {
+                _request = request;
+                return this;
+            }
+
+            public IFluentLoggerWriter Response(HttpResponseBase response)
+            {
+                _response = response;
+                return this;
+            }
+
+            public IFluentLoggerWriter OmitRequestBody()
+            {
+                _shouldOmitRequestBody = true;
+                return this;
+            }
+
+
             private static bool UseAsync = false;
             public void Write()
             {
@@ -134,15 +157,21 @@ namespace uShip.Logging
                     LoggingEvent loggingEvent;
                     try
                     {
-                        var properties = new LoggingEventPropertiesBuilder()
+                        var loggingEventContextBuilder = new LoggingEventPropertiesBuilder()
                             .WithMachineName()
                             .WithSqlData(_sql, _sqlParameters)
                             .WithException(_exception)
                             .WithCurrentVersion()
                             .WithUniqueOrigin(_message, _exception)
                             .WithCurrentContext()
-                            .IncludeBasicRequestInfo()
-                            .IncludeRequestBody()
+                            .WithRequest(_request)
+                            .WithResponse(_response)
+                            .IncludeBasicRequestInfo();
+                        if (!_shouldOmitRequestBody)
+                        {
+                            loggingEventContextBuilder = loggingEventContextBuilder.IncludeRequestBody();
+                        }
+                        var properties = loggingEventContextBuilder
                             .IncludeResponse()
                             .FinishContext()
                             .WithTags(_tags)
